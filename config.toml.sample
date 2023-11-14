@@ -1,0 +1,10 @@
+[matrix]
+homeserver = ""
+username = ""
+password = ""
+room_id = ""
+session_dir = "."
+
+[gotify]
+url = ""
+token = ""
