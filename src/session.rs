@@ -21,10 +21,13 @@ struct ClientSession {
 struct FullSession {
     client_session: ClientSession,
     user_session: MatrixSession,
+
+    #[serde(skip_serializing_if = "Option::is_none")]
+    last_id: Option<i64>,
 }
 
 /// Restore a previous session.
-pub async fn restore_session(session_file: &Path) -> anyhow::Result<Client> {
+pub async fn restore_session(session_file: &Path) -> anyhow::Result<(Client, Option<i64>)> {
     info!(
         "Previous session found in '{}'",
         session_file.to_string_lossy()
@@ -35,6 +38,7 @@ pub async fn restore_session(session_file: &Path) -> anyhow::Result<Client> {
     let FullSession {
         client_session,
         user_session,
+        last_id
     } = serde_json::from_str(&serialized_session)?;
 
     // Build the client with the previous settings from the session.
@@ -49,7 +53,7 @@ pub async fn restore_session(session_file: &Path) -> anyhow::Result<Client> {
     // Restore the Matrix user session.
     client.restore_session(user_session).await?;
 
-    Ok(client)
+    Ok((client, last_id))
 }
 
 /// Login with a new device.
@@ -91,17 +95,12 @@ pub async fn login(
         .expect("A logged-in client should have a session");
     let serialized_session = serde_json::to_string(&FullSession {
         client_session,
-        user_session
+        user_session,
+        last_id: None
     })?;
     fs::write(session_file, serialized_session).await?;
 
     info!("Session persisted in {}", session_file.to_string_lossy());
-
-    // After logging in, you might want to verify this session with another one (see
-    // the `emoji_verification` example), or bootstrap cross-signing if this is your
-    // first session with encryption, or if you need to reset cross-signing because
-    // you don't have access to your old sessions (see the
-    // `cross_signing_bootstrap` example).
 
     Ok(client)
 }

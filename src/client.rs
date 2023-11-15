@@ -9,22 +9,27 @@ use matrix_sdk::{
 };
 use tracing::{info, warn};
 
+use futures_util::{future, pin_mut, StreamExt};
+use tokio::io::{AsyncReadExt, AsyncWriteExt};
+use tokio_tungstenite::{connect_async, tungstenite::protocol::Message};
+use anyhow::Error;
+
 pub async fn run(config: &config::Config) -> anyhow::Result<()> {
     let data_dir = &config.matrix.session_dir;
     // The file where the session is persisted.
     let session_file = data_dir.join("session");
 
-    let client = if session_file.exists() {
+    let (client, last_id) = if session_file.exists() {
         session::restore_session(&session_file).await?
     } else {
-        session::login(config, &data_dir, &session_file).await?
+        (session::login(config, &data_dir, &session_file).await?, None)
     };
 
-    sync(client, config).await.map_err(Into::into)
+    sync(client, config, last_id).await.map_err(Into::into)
 }
 
 /// Setup the client to listen to new messages.
-async fn sync(client: Client, config: &config::Config) -> anyhow::Result<()> {
+async fn sync(client: Client, config: &config::Config, last_id: Option<i64>) -> anyhow::Result<()> {
     info!("Launching a first sync");
 
     // Enable room members lazy-loading, it will speed up the initial sync a lot
@@ -46,12 +51,34 @@ async fn sync(client: Client, config: &config::Config) -> anyhow::Result<()> {
         }
     }
 
-    info!("The client is ready!");
-    let room = client
-        .get_room(<&RoomId>::try_from(config.matrix.room_id.as_str()).unwrap())
-        .unwrap();
-    let content = RoomMessageEventContent::text_plain("🎉🎊🥳 let's PARTY!! 🥳🎊🎉");
-    room.send(content).await.unwrap();
+    if let Some(id) = last_id {
+        // get all messages starting from last_id and send them
+    }
+
+    let mut url = config.gotify.url.clone();
+    url.set_scheme("ws").expect("unable to set scheme to ws://");
+    url.path_segments_mut().map_err(|_| Error::msg("cannot be base"))?.extend(&["stream"]);
+    let (ws_stream, _) = connect_async(url).await.expect("Failed to connect to gotify websocket");
+    let (write, read) = ws_stream.split();
+
+    let ws_to_stdout = {
+        read.for_each(|message| async {
+            let data = message.unwrap().into_data();
+            tokio::io::stdout().write_all(&data).await.unwrap();
+        })
+    };
+
+    // pin_mut!(stdin_to_ws, ws_to_stdout);
+    // future::select(stdin_to_ws, ws_to_stdout).await;
+
+    // attach to websocket
+
+    // info!("The client is ready!");
+    // let room = client
+    //     .get_room(<&RoomId>::try_from(config.matrix.room_id.as_str()).unwrap())
+    //     .unwrap();
+    // let content = RoomMessageEventContent::text_plain("🎉🎊🥳 let's PARTY!! 🥳🎊🎉");
+    // room.send(content).await.unwrap();
 
     session::sync_loop(client, sync_settings).await?;
     Ok(())

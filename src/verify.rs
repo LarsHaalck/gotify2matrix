@@ -22,7 +22,7 @@ use tracing::info;
 pub async fn run(config: &config::Config) -> anyhow::Result<()> {
     let data_dir = &config.matrix.session_dir;
     let session_file = data_dir.join("session");
-    let client = if session_file.exists() {
+    let (client, _) = if session_file.exists() {
         session::restore_session(&session_file).await?
     } else {
         bail!("Session must exist before verify");
@@ -35,7 +35,7 @@ pub async fn run(config: &config::Config) -> anyhow::Result<()> {
 
 /// Setup the client to listen to new messages.
 async fn sync(
-    client: Client,
+    client: Client
 ) -> anyhow::Result<()> {
     client.add_event_handler(
         |ev: ToDeviceKeyVerificationRequestEvent, client: Client| async move {

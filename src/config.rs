@@ -19,6 +19,6 @@ pub struct Matrix {
 
 #[derive(Deserialize)]
 pub struct Gotify {
-   pub url: String,
+   pub url: Url,
    pub token: String,
 }
