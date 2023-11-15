@@ -21,12 +21,10 @@ struct ClientSession {
 struct FullSession {
     client_session: ClientSession,
     user_session: MatrixSession,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    sync_token: Option<String>,
 }
 
 /// Restore a previous session.
-pub async fn restore_session(session_file: &Path) -> anyhow::Result<(Client, Option<String>)> {
+pub async fn restore_session(session_file: &Path) -> anyhow::Result<Client> {
     info!(
         "Previous session found in '{}'",
         session_file.to_string_lossy()
@@ -37,7 +35,6 @@ pub async fn restore_session(session_file: &Path) -> anyhow::Result<(Client, Opt
     let FullSession {
         client_session,
         user_session,
-        sync_token,
     } = serde_json::from_str(&serialized_session)?;
 
     // Build the client with the previous settings from the session.
@@ -52,7 +49,7 @@ pub async fn restore_session(session_file: &Path) -> anyhow::Result<(Client, Opt
     // Restore the Matrix user session.
     client.restore_session(user_session).await?;
 
-    Ok((client, sync_token))
+    Ok(client)
 }
 
 /// Login with a new device.
@@ -94,8 +91,7 @@ pub async fn login(
         .expect("A logged-in client should have a session");
     let serialized_session = serde_json::to_string(&FullSession {
         client_session,
-        user_session,
-        sync_token: None,
+        user_session
     })?;
     fs::write(session_file, serialized_session).await?;
 
@@ -177,33 +173,11 @@ async fn build_client(
 pub async fn sync_loop(
     client: Client,
     sync_settings: SyncSettings,
-    session_file: &Path,
 ) -> Result<(), Error> {
     // This loops until we kill the program or an error happens.
     client
-        .sync_with_result_callback(sync_settings, |sync_result| async move {
-            let response = sync_result?;
-
-            // We persist the token each time to be able to restore our session
-            persist_sync_token(session_file, response.next_batch)
-                .await
-                .map_err(|err| Error::UnknownError(err.into()))?;
-
+        .sync_with_result_callback(sync_settings, |_| async move {
             Ok(LoopCtrl::Continue)
         })
         .await
-}
-
-/// Persist the sync token for a future session.
-/// Note that this is needed only when using `sync_once`. Other sync methods get
-/// the sync token from the store.
-pub async fn persist_sync_token(session_file: &Path, sync_token: String) -> anyhow::Result<()> {
-    let serialized_session = fs::read_to_string(session_file).await?;
-    let mut full_session: FullSession = serde_json::from_str(&serialized_session)?;
-
-    full_session.sync_token = Some(sync_token);
-    let serialized_session = serde_json::to_string(&full_session)?;
-    fs::write(session_file, serialized_session).await?;
-
-    Ok(())
 }

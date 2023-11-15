@@ -17,18 +17,18 @@ use matrix_sdk::{
     },
     Client,
 };
-use std::path::Path;
+use tracing::info;
 
 pub async fn run(config: &config::Config) -> anyhow::Result<()> {
     let data_dir = &config.matrix.session_dir;
     let session_file = data_dir.join("session");
-    let (client, sync_token) = if session_file.exists() {
+    let client = if session_file.exists() {
         session::restore_session(&session_file).await?
     } else {
         bail!("Session must exist before verify");
     };
 
-    sync(client, sync_token, &session_file)
+    sync(client)
         .await
         .map_err(Into::into)
 }
@@ -36,8 +36,6 @@ pub async fn run(config: &config::Config) -> anyhow::Result<()> {
 /// Setup the client to listen to new messages.
 async fn sync(
     client: Client,
-    initial_sync_token: Option<String>,
-    session_file: &Path,
 ) -> anyhow::Result<()> {
     client.add_event_handler(
         |ev: ToDeviceKeyVerificationRequestEvent, client: Client| async move {
@@ -65,7 +63,8 @@ async fn sync(
         },
     );
 
-    session::sync_loop(client, SyncSettings::new(), session_file).await?;
+    info!("Launching a sync");
+    session::sync_loop(client, SyncSettings::new()).await?;
     Ok(())
 }
 
