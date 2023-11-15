@@ -3,7 +3,7 @@ homeserver = ""
 username = ""
 password = ""
 room_id = ""
-session_dir = "."
+session_dir = "session"
 
 [gotify]
 url = ""
