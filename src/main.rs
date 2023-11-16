@@ -38,8 +38,8 @@ async fn main() -> anyhow::Result<()> {
         toml::from_str(config.as_str()).expect("Could not parse config file");
 
     match options.command {
-        Some(Command::Verify) => verify::run(&config).await?,
-        _ => client::run(&config).await?,
+        Some(Command::Verify) => verify::run(config).await?,
+        _ => client::run(config).await?,
     }
     Ok(())
 }

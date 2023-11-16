@@ -38,7 +38,7 @@ pub async fn restore_session(session_file: &Path) -> anyhow::Result<(Client, Opt
     let FullSession {
         client_session,
         user_session,
-        last_id
+        last_id,
     } = serde_json::from_str(&serialized_session)?;
 
     // Build the client with the previous settings from the session.
@@ -48,12 +48,28 @@ pub async fn restore_session(session_file: &Path) -> anyhow::Result<(Client, Opt
         .build()
         .await?;
 
-    info!("Restoring session for {}…", user_session.meta.user_id);
+    info!("Restoring session for {}...", user_session.meta.user_id);
 
     // Restore the Matrix user session.
     client.restore_session(user_session).await?;
 
     Ok((client, last_id))
+}
+
+pub async fn persist_last_id(session_file: &Path, last_id: Option<i64>) -> anyhow::Result<()> {
+    // nothing to be done for None
+    if last_id.is_none() {
+        return Ok(());
+    }
+
+    let serialized_session = fs::read_to_string(session_file).await?;
+    let mut full_session: FullSession = serde_json::from_str(&serialized_session)?;
+
+    full_session.last_id = last_id;
+    let serialized_session = serde_json::to_string(&full_session)?;
+    fs::write(session_file, serialized_session).await?;
+
+    Ok(())
 }
 
 /// Login with a new device.
@@ -96,7 +112,7 @@ pub async fn login(
     let serialized_session = serde_json::to_string(&FullSession {
         client_session,
         user_session,
-        last_id: None
+        last_id: None,
     })?;
     fs::write(session_file, serialized_session).await?;
 
@@ -169,14 +185,9 @@ async fn build_client(
     }
 }
 
-pub async fn sync_loop(
-    client: Client,
-    sync_settings: SyncSettings,
-) -> Result<(), Error> {
+pub async fn sync_loop(client: Client, sync_settings: SyncSettings) -> Result<(), Error> {
     // This loops until we kill the program or an error happens.
     client
-        .sync_with_result_callback(sync_settings, |_| async move {
-            Ok(LoopCtrl::Continue)
-        })
+        .sync_with_result_callback(sync_settings, |_| async move { Ok(LoopCtrl::Continue) })
         .await
 }

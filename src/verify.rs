@@ -19,7 +19,7 @@ use matrix_sdk::{
 };
 use tracing::info;
 
-pub async fn run(config: &config::Config) -> anyhow::Result<()> {
+pub async fn run(config: config::Config) -> anyhow::Result<()> {
     let data_dir = &config.matrix.session_dir;
     let session_file = data_dir.join("session");
     let (client, _) = if session_file.exists() {
