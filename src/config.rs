@@ -21,4 +21,5 @@ pub struct Matrix {
 pub struct Gotify {
    pub url: Url,
    pub token: String,
+   pub delete_sent: bool
 }

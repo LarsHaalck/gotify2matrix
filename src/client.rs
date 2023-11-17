@@ -1,14 +1,17 @@
 use crate::{config, session};
 use anyhow::{Error, Result};
+use futures_util::StreamExt;
+use gotify::ClientClient as GotifyClient;
 use matrix_sdk::{
     config::SyncSettings,
     ruma::{
         api::client::filter::FilterDefinition, events::room::message::RoomMessageEventContent,
         RoomId,
     },
-    Client,
+    Client as MatrixClient, Room,
 };
-use tracing::{info, warn};
+use std::path::Path;
+use tracing::{debug, info, warn};
 
 struct Message {
     app: String,
@@ -17,13 +20,47 @@ struct Message {
 }
 
 impl Message {
-    pub fn format(&self) -> String {
+    pub fn format_plain(&self) -> String {
         format!(
-            "### {}: {}\n{}",
-            self.app,
+            "{} ({}) \n{}",
             self.title.clone().unwrap_or_default(),
+            self.app,
             self.message
         )
+    }
+    pub fn format_html(&self) -> String {
+        format!(
+            "<h4>{} (<u>{}</u>)</h4>\n{}",
+            self.title.clone().unwrap_or_default(),
+            self.app,
+            self.message
+        )
+    }
+}
+
+struct Converter(Vec<gotify::models::Application>);
+impl Converter {
+    pub async fn new(client: &GotifyClient) -> Result<Converter> {
+        let apps = client.get_applications().await?;
+        Ok(Converter(apps))
+    }
+    pub fn convert(&self, message: &gotify::models::Message) -> Result<RoomMessageEventContent> {
+        let app = &self
+            .0
+            .iter()
+            .find(|&a| a.id == message.appid)
+            .ok_or(Error::msg("Could not find app from id"))?
+            .name;
+
+        let message = Message {
+            app: app.to_string(),
+            title: message.title.clone(),
+            message: message.message.clone(),
+        };
+        Ok(RoomMessageEventContent::text_html(
+            message.format_plain(),
+            message.format_html(),
+        ))
     }
 }
 
@@ -40,7 +77,7 @@ pub async fn run(config: config::Config) -> Result<()> {
         )
     };
 
-    let gotify_client: gotify::ClientClient =
+    let gotify_client: GotifyClient =
         gotify::Client::new(config.gotify.url.as_str(), &config.gotify.token)?;
     sync(client, config, gotify_client, last_id)
         .await
@@ -48,12 +85,12 @@ pub async fn run(config: config::Config) -> Result<()> {
 }
 
 async fn sync_gotify_messages(
-    client: Client,
-    gotify_client: gotify::ClientClient,
+    client: MatrixClient,
+    gotify_client: GotifyClient,
     config: config::Config,
     last_id: Option<i64>,
 ) -> Result<()> {
-    info!("Syncing gotify messages");
+    info!("Syncing gotify messages...");
 
     let mut current_id = last_id;
     loop {
@@ -69,66 +106,109 @@ async fn sync_gotify_messages(
 }
 
 async fn sync_gotify_messages_loop(
-    client: &Client,
-    gotify_client: &gotify::ClientClient,
+    client: &MatrixClient,
+    gotify_client: &GotifyClient,
     config: &config::Config,
     last_id: &mut Option<i64>,
 ) -> Result<()> {
+    debug!("Syncing gotify messages with last_id: {:?}", last_id);
     let room = client
         .get_room(
             <&RoomId>::try_from(config.matrix.room_id.as_str()).expect("Could not convert room id"),
         )
         .unwrap();
-    //
     // get applications
-    let apps = gotify_client.get_applications().await?;
+    let converter = Converter::new(gotify_client).await?;
 
     // retrieve all old messages
     let mut msg_builder = gotify_client.get_messages();
-    if let Some(id) = last_id {
-        msg_builder = msg_builder.with_since(*id);
-    }
-
     let mut paged_msgs = msg_builder.send().await?;
-    let mut msgs = paged_msgs.messages;
-    while let Some(_) = paged_msgs.paging.next {
+    let mut msgs: Vec<_> = paged_msgs
+        .messages
+        .into_iter()
+        .filter(|m| m.id > last_id.unwrap_or(i64::MAX))
+        .collect();
+
+    debug!("Got {} gotify messages", msgs.len());
+
+    while paged_msgs.paging.next.is_some() && paged_msgs.paging.since >= last_id.unwrap_or(0) {
         msg_builder = gotify_client
             .get_messages()
             .with_since(paged_msgs.paging.since);
         paged_msgs = msg_builder.send().await?;
-        msgs.extend(paged_msgs.messages);
+        let curr_msgs: Vec<_> = paged_msgs
+            .messages
+            .into_iter()
+            .filter(|m| m.id > last_id.unwrap_or(i64::MAX))
+            .collect();
+        msgs.extend(curr_msgs);
     }
+
+    msgs.reverse();
 
     // send old messages
-    for msg in msgs {
-        let app = &apps
-            .iter()
-            .find(|&a| a.id == msg.appid)
-            .ok_or(Error::msg("Could not find app from id"))?
-            .name;
-
-        let message = Message {
-            app: app.to_string(),
-            title: msg.title,
-            message: msg.message,
-        };
-        let message = RoomMessageEventContent::text_plain(message.format());
-        room.send(message).await.unwrap();
-        *last_id = Some(msg.id);
-    }
     let session_file = &config.matrix.session_dir.join("session");
+    for msg in msgs {
+        let message = converter.convert(&msg)?;
+        send_and_delete(
+            gotify_client,
+            message,
+            msg.id,
+            &room,
+            last_id,
+            session_file,
+            config.gotify.delete_sent,
+        )
+        .await?;
+    }
+
+    // stream messages
+    let mut msg_stream = gotify_client.stream_messages().await?;
+    while let Some(result) = msg_stream.next().await {
+        let msg = result?;
+        let message = converter.convert(&msg)?;
+        send_and_delete(
+            gotify_client,
+            message,
+            msg.id,
+            &room,
+            last_id,
+            session_file,
+            config.gotify.delete_sent,
+        )
+        .await?;
+    }
+
+    Ok(())
+}
+
+pub async fn send_and_delete(
+    gotify_client: &GotifyClient,
+    message: RoomMessageEventContent,
+    id: i64,
+    room: &Room,
+    last_id: &mut Option<i64>,
+    session_file: &Path,
+    delete: bool,
+) -> Result<()> {
+    debug!("Send message with id {}", id);
+    room.send(message).await.unwrap();
+    *last_id = Some(id);
     session::persist_last_id(&session_file, *last_id).await?;
 
-    tokio::time::sleep(tokio::time::Duration::from_secs(10)).await;
+    if delete {
+        debug!("Deleting message with id {}", id);
+        gotify_client.delete_message(id).await?;
+    }
 
     Ok(())
 }
 
 /// Setup the client to listen to new messages.
 async fn sync(
-    client: Client,
+    client: MatrixClient,
     config: config::Config,
-    gotify_client: gotify::ClientClient,
+    gotify_client: GotifyClient,
     last_id: Option<i64>,
 ) -> Result<()> {
     info!("Launching a first sync");

@@ -18,4 +18,4 @@ dirs = "5.0.1"
 structopt = "0.3.26"
 toml = "0.8.8"
 futures-util = "0.3.24"
-gotify = { version = "0.4.0", features = ["client-core", "manage-messages", "manage-applications"] }
+gotify = { version = "0.4.0", features = ["client-core", "manage-messages", "manage-applications", "websocket"] }

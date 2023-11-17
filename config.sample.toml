@@ -8,3 +8,4 @@ session_dir = "session"
 [gotify]
 url = ""
 token = ""
+delete_sent = true
