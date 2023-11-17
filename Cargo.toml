@@ -4,7 +4,7 @@ version = "0.1.0"
 edition = "2021"
 
 [dependencies]
-matrix-sdk = { git = "https://github.com/matrix-org/matrix-rust-sdk", features = ["e2e-encryption"]}
+matrix-sdk = { git = "https://github.com/matrix-org/matrix-rust-sdk", rev = "7e53c6821be8ec7ab5adcb84e43e478773e79c30", features = ["e2e-encryption"]}
 ruma = "0.7.4"
 anyhow = "1.0.75"
 url = { version = "2.4.1", features = ["serde"]}
