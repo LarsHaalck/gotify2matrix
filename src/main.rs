@@ -33,10 +33,7 @@ async fn main() -> anyhow::Result<()> {
             .join("gotify2matrix")
             .join("config.toml"),
     };
-    let config = std::fs::read_to_string(config_file).expect("Could not read config file");
-    let config: config::Config =
-        toml::from_str(config.as_str()).expect("Could not parse config file");
-
+    let config = config::Config::read(config_file)?;
     match options.command {
         Some(Command::Verify) => verify::run(config).await?,
         _ => client::run(config).await?,

@@ -2,6 +2,7 @@ use crate::{config, session};
 use anyhow::{Error, Result};
 use futures_util::StreamExt;
 use gotify::ClientClient as GotifyClient;
+use handlebars::Handlebars;
 use matrix_sdk::{
     config::SyncSettings,
     ruma::{
@@ -20,33 +21,31 @@ struct Message {
 }
 
 impl Message {
-    pub fn format_plain(&self) -> String {
-        format!(
-            "{} ({}) \n{}",
-            self.title.clone().unwrap_or_default(),
-            self.app,
-            self.message
-        )
-    }
-    pub fn format_html(&self) -> String {
-        format!(
-            "<h4>{} (<u>{}</u>)</h4>\n{}",
-            self.title.clone().unwrap_or_default(),
-            self.app,
-            self.message
-        )
+    pub fn render(&self, templates: &Handlebars, template: &str) -> Result<String> {
+        let output = templates.render(template, &serde_json::json!({"title": self.title.clone().unwrap_or_default(), "app": self.app, "message": self.message}))?;
+        Ok(format!("{}", output))
     }
 }
 
-struct Converter(Vec<gotify::models::Application>);
-impl Converter {
-    pub async fn new(client: &GotifyClient) -> Result<Converter> {
+struct Converter<'a> {
+    apps: Vec<gotify::models::Application>,
+    templates: Handlebars<'a>,
+}
+
+impl Converter<'_> {
+    pub async fn new<'a>(
+        client: &'a GotifyClient,
+        config: &config::Config,
+    ) -> Result<Converter<'a>> {
         let apps = client.get_applications().await?;
-        Ok(Converter(apps))
+        let mut templates = Handlebars::new();
+        templates.register_template_string("plain", config.gotify.format_plain.clone())?;
+        templates.register_template_string("html", config.gotify.format_html.clone())?;
+        Ok(Converter { apps, templates })
     }
     pub fn convert(&self, message: &gotify::models::Message) -> Result<RoomMessageEventContent> {
         let app = &self
-            .0
+            .apps
             .iter()
             .find(|&a| a.id == message.appid)
             .ok_or(Error::msg("Could not find app from id"))?
@@ -58,8 +57,8 @@ impl Converter {
             message: message.message.clone(),
         };
         Ok(RoomMessageEventContent::text_html(
-            message.format_plain(),
-            message.format_html(),
+            message.render(&self.templates, "plain")?,
+            message.render(&self.templates, "html")?,
         ))
     }
 }
@@ -118,7 +117,7 @@ async fn sync_gotify_messages_loop(
         )
         .unwrap();
     // get applications
-    let converter = Converter::new(gotify_client).await?;
+    let converter = Converter::new(gotify_client, config).await?;
 
     // retrieve all old messages
     let mut msg_builder = gotify_client.get_messages();

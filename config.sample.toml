@@ -3,9 +3,11 @@ homeserver = ""
 username = ""
 password = ""
 room_id = ""
-session_dir = "session"
+# session_dir = "session"
 
 [gotify]
 url = ""
 token = ""
-delete_sent = true
+# delete_sent = false
+# format_plain = "{{title}} ({{app}}) \n{{message}}"
+# format_html = "<h4>{{title}} (<u>{{app}}</u>)</h4>\n{{message}}"
