@@ -125,7 +125,7 @@ async fn sync_gotify_messages_loop(
     let mut msgs: Vec<_> = paged_msgs
         .messages
         .into_iter()
-        .filter(|m| m.id > last_id.unwrap_or(i64::MAX))
+        .filter(|m| m.id > last_id.unwrap_or(0))
         .collect();
 
     debug!("Got {} gotify messages", msgs.len());
@@ -138,7 +138,7 @@ async fn sync_gotify_messages_loop(
         let curr_msgs: Vec<_> = paged_msgs
             .messages
             .into_iter()
-            .filter(|m| m.id > last_id.unwrap_or(i64::MAX))
+            .filter(|m| m.id > last_id.unwrap_or(0))
             .collect();
         msgs.extend(curr_msgs);
     }
