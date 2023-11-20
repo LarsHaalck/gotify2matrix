@@ -1,0 +1,10 @@
+version: "3.7"
+
+services:
+  gotify2matrix:
+    image: larshaalck/gotify2matrix:latest
+    build: .
+    env_file:
+      - .g2m.env
+    volumes:
+      - ./session:/session
