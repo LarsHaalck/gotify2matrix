@@ -1,7 +1,8 @@
+use anyhow::{Context, Error, Result};
 use serde::Deserialize;
 use std::path::PathBuf;
 use url::Url;
-use anyhow::{Result, Context};
+use tracing::debug;
 
 #[derive(Deserialize)]
 pub struct Config {
@@ -20,7 +21,7 @@ pub struct Matrix {
 }
 
 fn default_session() -> PathBuf {
-   PathBuf::from("./session")
+    PathBuf::from("./session")
 }
 
 #[derive(Deserialize)]
@@ -36,16 +37,32 @@ pub struct Gotify {
 }
 
 fn default_plain() -> String {
-   "{{title}} ({{app}}) \n{{message}}".to_string()
+    "{{title}} ({{app}}) \n{{message}}".to_string()
 }
 
 fn default_html() -> String {
-   "<h4>{{title}} (<i>{{app}}</i>)</h4>\n{{message}}".to_string()
+    "<h4>{{title}} (<i>{{app}}</i>)</h4>\n{{message}}".to_string()
 }
 
 impl Config {
     pub fn read(config_file: std::path::PathBuf) -> Result<Config> {
-        let config = std::fs::read_to_string(config_file).context("Could not read config file")?;
-      toml::from_str(config.as_str()).context("Could not parse config file")
+        let config: Option<Config>;
+        // try to read file first
+        if config_file.is_file() {
+            debug!("Trying to read config from file: {}", config_file.display());
+            let config_str =
+                std::fs::read_to_string(config_file).context("Could not read config file")?;
+            config =
+                Some(toml::from_str(config_str.as_str()).context("Could not parse config file")?);
+        } else {
+            debug!("Trying to read config from env");
+            let matrix = envy::prefixed("G2M_MATRIX_").from_env::<Matrix>()?;
+            let gotify = envy::prefixed("G2M_GOTIFY_").from_env::<Gotify>()?;
+            config = Some(Config { matrix, gotify });
+        }
+
+        config.ok_or(Error::msg(
+            "Could not read config file from either file nor environment",
+        ))
     }
 }
