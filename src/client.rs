@@ -191,7 +191,7 @@ pub async fn send_and_delete(
     delete: bool,
 ) -> Result<()> {
     debug!("Send message with id {}", id);
-    room.send(message).await.unwrap();
+    room.send(message).await?;
     *last_id = Some(id);
     session::persist_last_id(&session_file, *last_id).await?;
 
