@@ -45,13 +45,18 @@ Default values are commented out.
 | url           | url of the gotify server                           | N/A                                                  |
 | token         | app token for the bot                              | N/A                                                  |
 | delete_sent   | wether sent messages should be removed from gotify | `false`                                              |
-| format_plain  | format string for the plain part                   | `"{{title}} ({{app}}) \n{{message}}"`                |
-| format_html   | format string of the html part                     | `"<h4>{{title}} (<u>{{app}}</u>)</h4>\n{{message}}"`
+| plain         | format string for the plain part                   | `"{{title}} ({{app}}) \n{{message}}"`                |
+| html          | format string of the html part                     | `"<h4>{{title}} (<u>{{app}}</u>)</h4>\n{{message}}"`
 
 Available template tokens are `title, app, message`.
 
 Instead of a supplied config, all values can also be set using environtmen variables.
 Matrix variables are prefixed with `G2M_MATRIX_`, e.g. `G2M_MATRIX_HOMESERVER`, while gotify variable are prefixed with `G2M_GOTIFY_`.
+
+### Notification Priority
+It is also possible to set different notification foramts for different gotify priorities.
+The default thresholdsa are 3 for low and 8 for high priorities, meaning that everything below 3 will be considered low, between 3 and 8 will be considered normal and everything above 8 will be consideres as high priority.
+By setting the respective `plain` or `html` field, the default format can be overriden (i.e. to set font colors or add an icon).
 
 ## Docker
 Modify `.g2m.sample.env`, save it as `.g2m.env` and run `docker compose up -d` to run the server.

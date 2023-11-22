@@ -21,15 +21,36 @@ struct Message {
 }
 
 impl Message {
-    pub fn render(&self, templates: &Handlebars, template: &str) -> Result<String> {
-        let output = templates.render(template, &serde_json::json!({"title": self.title.clone().unwrap_or_default(), "app": self.app, "message": self.message}))?;
+    pub fn render(&self, handlebars: &Handlebars, template: &str) -> Result<String> {
+        let output = handlebars.render(
+            template,
+            &serde_json::json!({
+                "app": self.app,
+                "title": self.title.clone().unwrap_or_default(),
+                "message": self.message
+            }),
+        )?;
         Ok(format!("{}", output))
     }
 }
 
+macro_rules! register {
+    ($templates:expr, $p1:ident.$p2:ident.$p3:ident.$p4:ident) => {
+        debug!("Registering template {}_{}", stringify!($p4), stringify!($p3));
+        if let Some(template) = &$p1.$p2.$p3.$p4 {
+            $templates.register_template_string(
+                format!("{}_{}", stringify!($p4), stringify!($p3)).as_str(),
+                template,
+            )?;
+        }
+    };
+}
+
 struct Converter<'a> {
     apps: Vec<gotify::models::Application>,
-    templates: Handlebars<'a>,
+    handlebars: Handlebars<'a>,
+    low: i32,
+    high: i32,
 }
 
 impl Converter<'_> {
@@ -38,12 +59,36 @@ impl Converter<'_> {
         config: &config::Config,
     ) -> Result<Converter<'a>> {
         let apps = client.get_applications().await?;
-        let mut templates = Handlebars::new();
-        templates.register_template_string("plain", config.gotify.format_plain.clone())?;
-        templates.register_template_string("html", config.gotify.format_html.clone())?;
-        Ok(Converter { apps, templates })
+
+        // register all templates
+        let mut handlebars = Handlebars::new();
+        handlebars.register_template_string("plain", config.gotify.plain.clone())?;
+        handlebars.register_template_string("html", config.gotify.html.clone())?;
+        register!(handlebars, config.gotify.low.plain);
+        register!(handlebars, config.gotify.low.html);
+        register!(handlebars, config.gotify.normal.plain);
+        register!(handlebars, config.gotify.normal.html);
+        register!(handlebars, config.gotify.high.plain);
+        register!(handlebars, config.gotify.high.html);
+        Ok(Converter {
+            apps,
+            handlebars,
+            low: config.gotify.threshold_low,
+            high: config.gotify.threshold_high,
+        })
+    }
+
+    pub fn render(&self, message: &Message, kind: &str, prio: &str) -> Result<String> {
+        let templates = self.handlebars.get_templates();
+        let template_id = format!("{}_{}", kind, prio);
+        if templates.contains_key(&template_id) {
+            message.render(&self.handlebars, &template_id)
+        } else {
+            message.render(&self.handlebars, kind)
+        }
     }
     pub fn convert(&self, message: &gotify::models::Message) -> Result<RoomMessageEventContent> {
+        use config::GotifyPriority;
         let app = &self
             .apps
             .iter()
@@ -51,15 +96,31 @@ impl Converter<'_> {
             .ok_or(Error::msg("Could not find app from id"))?
             .name;
 
+        let prio = GotifyPriority::from_thresholds(message.priority.into(), self.low, self.high);
         let message = Message {
             app: app.to_string(),
             title: message.title.clone(),
             message: message.message.clone(),
         };
-        Ok(RoomMessageEventContent::text_html(
-            message.render(&self.templates, "plain")?,
-            message.render(&self.templates, "html")?,
-        ))
+
+        let plain: String;
+        let html: String;
+        match prio {
+            GotifyPriority::Low => {
+                plain = self.render(&message, "plain", "low")?;
+                html = self.render(&message, "html", "low")?;
+            }
+            GotifyPriority::Normal => {
+                plain = self.render(&message, "plain", "normal")?;
+                html = self.render(&message, "html", "normal")?;
+            }
+            GotifyPriority::High => {
+                plain = self.render(&message, "plain", "high")?;
+                html = self.render(&message, "html", "high")?;
+            }
+        }
+
+        Ok(RoomMessageEventContent::text_html(plain, html))
     }
 }
 

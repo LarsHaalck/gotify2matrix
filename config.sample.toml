@@ -9,5 +9,19 @@ room_id = ""
 url = ""
 token = ""
 # delete_sent = false
-# format_plain = "{{title}} ({{app}}) \n{{message}}"
-# format_html = "<h4>{{title}} (<u>{{app}}</u>)</h4>\n{{message}}"
+# html = "<h4>{{app}}: {{title}}</h4>\n{{message}}"
+# plain = "{{app}}: {{title}}\n{{message}}"
+# threshold_low = 3
+# threshold_high = 8
+
+# [gotify.low]
+# html = ""
+# plain = ""
+
+# [gotify.normal]
+# html = ""
+# plain = ""
+
+# [gotify.high]
+# html = ""
+# plain = ""
