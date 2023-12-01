@@ -188,6 +188,9 @@ async fn build_client(
 pub async fn sync_loop(client: Client, sync_settings: SyncSettings) -> Result<(), Error> {
     // This loops until we kill the program or an error happens.
     client
-        .sync_with_result_callback(sync_settings, |_| async move { Ok(LoopCtrl::Continue) })
+        .sync_with_result_callback(sync_settings, |sync_response| async move { 
+            sync_response?;
+            Ok(LoopCtrl::Continue) }
+        )
         .await
 }
